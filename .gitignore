@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.pyc
+
+# Virtual environments
+venv/
+.venv/
+env/
+qtl_venv/
+
+# Results / data
+results/
+data/datasets/
+*.csv
+*.pt
+*.pth
+
+# Logs
+*.log
+slurm-*.out
+slurm-*.err
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# CodeCarbon
+.codecarbon/
+emissions.csv

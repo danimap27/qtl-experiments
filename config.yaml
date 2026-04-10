@@ -1,0 +1,197 @@
+# =============================================================
+# CONFIGURACION GENERAL
+# =============================================================
+experiment_name: "qtl_revision_v2"
+output_dir: "./results"
+device: "cpu"
+
+# =============================================================
+# SEEDS
+# =============================================================
+seeds: [0, 42, 123, 456, 789]
+
+# =============================================================
+# DATASETS
+# =============================================================
+datasets:
+  - name: "hymenoptera"
+    path: "./data/datasets/hymenoptera"
+    num_classes: 2
+    image_size: 224
+  - name: "brain_tumor"
+    path: "./data/datasets/brain_tumor"
+    num_classes: 2
+    image_size: 224
+  - name: "cats_vs_dogs"
+    path: "./data/datasets/cats_vs_dogs"
+    num_classes: 2
+    image_size: 224
+  - name: "solar_dust"
+    path: "./data/datasets/solar_dust"
+    num_classes: 2
+    image_size: 224
+
+# =============================================================
+# BACKBONES
+# =============================================================
+backbones:
+  - name: "resnet18"
+    feature_dim: 512
+  - name: "mobilenetv2"
+    feature_dim: 1280
+  - name: "efficientnet_b0"
+    feature_dim: 1280
+  - name: "regnet_x_400mf"
+    feature_dim: 400
+
+# =============================================================
+# HEADS
+# =============================================================
+heads:
+  # --- Clasicos ---
+  - name: "linear"
+    type: "classical"
+    description: "Baseline original: capa lineal sin no-linealidad"
+
+  - name: "mlp_a"
+    type: "classical"
+    description: "MLP parameter-matched (~12 params): Linear->tanh->Linear"
+    hidden_dim: 4
+    activation: "tanh"
+
+  - name: "mlp_b"
+    type: "classical"
+    description: "MLP estandar: 128->ReLU->64->ReLU->C"
+    hidden_dims: [128, 64]
+    activation: "relu"
+
+  # --- Cuanticos PennyLane ---
+  - name: "pl_ideal"
+    type: "pennylane"
+    description: "PennyLane ideal (default.qubit, parameter-shift)"
+    backend: "default.qubit"
+    n_qubits: 4
+    depth: 3
+    noise: false
+    noise_channels: []
+
+  - name: "pl_noisy"
+    type: "pennylane"
+    description: "PennyLane noisy (default.mixed, Heron r2 calibration)"
+    backend: "default.mixed"
+    n_qubits: 4
+    depth: 3
+    noise: true
+    noise_channels: ["amplitude_damping", "phase_damping", "depolarizing"]
+    noise_params:
+      T1_us: 250
+      T2_us: 150
+      t1q_ns: 32
+      t2q_ns: 68
+      p1q: 0.0002
+      p2q: 0.005
+      readout_error: 0.012
+
+  # --- Cuanticos Qiskit ---
+  - name: "qk_ideal"
+    type: "qiskit"
+    description: "Qiskit ideal (StatevectorSampler, EstimatorQNN)"
+    backend: "statevector"
+    n_qubits: 4
+    depth: 3
+    noise: false
+    shots: null
+
+  - name: "qk_noisy"
+    type: "qiskit"
+    description: "Qiskit noisy (AerSampler, SamplerQNN, Heron r2)"
+    backend: "aer"
+    n_qubits: 4
+    depth: 3
+    noise: true
+    shots: 1024
+    noise_params:
+      T1_us: 250
+      T2_us: 150
+      p1q: 0.0002
+      p2q: 0.005
+      readout_error: 0.012
+
+# =============================================================
+# HIPERPARAMETROS DE ENTRENAMIENTO
+# =============================================================
+training:
+  optimizer: "adam"
+  lr: 0.001
+  batch_size: 16
+  epochs: 10
+  scheduler:
+    type: "step_lr"
+    step_size: 3
+    gamma: 0.9
+  loss: "cross_entropy"
+
+# =============================================================
+# ENERGY TRACKING (CodeCarbon) -- activo por defecto
+# =============================================================
+energy:
+  enabled: true
+  tool: "codecarbon"
+
+# =============================================================
+# ESTUDIOS ADICIONALES
+# =============================================================
+
+# --- Ablacion qubits x profundidad ---
+ablation:
+  enabled: true
+  datasets: ["hymenoptera", "solar_dust"]
+  backbones: ["resnet18"]
+  heads: ["pl_ideal", "qk_ideal"]
+  qubits: [2, 4, 6]
+  depths: [1, 3, 5]
+  seeds: [42]
+
+# --- Descomposicion de ruido por canal ---
+noise_decomposition:
+  enabled: true
+  datasets: ["hymenoptera", "brain_tumor", "cats_vs_dogs", "solar_dust"]
+  backbones: ["resnet18", "mobilenetv2", "efficientnet_b0", "regnet_x_400mf"]
+  base_head: "pl_noisy"
+  channels:
+    - name: "amplitude_damping"
+      noise_channels: ["amplitude_damping"]
+    - name: "phase_damping"
+      noise_channels: ["phase_damping"]
+    - name: "depolarizing"
+      noise_channels: ["depolarizing"]
+  n_qubits: 4
+  depth: 3
+  seeds: [42]
+
+# --- Simulacion condiciones = hardware real ---
+sim_as_hardware:
+  enabled: true
+  datasets: ["hymenoptera"]
+  backbones: ["resnet18", "mobilenetv2", "efficientnet_b0", "regnet_x_400mf"]
+  heads: ["linear", "pl_ideal", "pl_noisy", "qk_ideal", "qk_noisy"]
+  epochs: 5
+  shots_override: 100
+  seeds: [42]
+
+# --- Barren plateaus ---
+barren_plateaus:
+  enabled: true
+  datasets: ["hymenoptera"]
+  backbones: ["resnet18"]
+  heads: ["pl_ideal", "pl_noisy"]
+  n_initializations: 200
+  qubits: [2, 4, 6]
+  depth: 3
+
+# --- Transpilacion para escalabilidad ---
+transpilation:
+  enabled: true
+  qubits: [2, 4, 6, 8]
+  depth: 3
+  backend: "ibm_torino"
