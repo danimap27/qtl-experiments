@@ -1,4 +1,9 @@
-"""Dataset loading utilities for quantum transfer learning experiments."""
+"""
+Dataset loading utilities for quantum transfer learning experiments.
+
+Dispatches between image datasets (ImageFolder) and tabular datasets
+(CSV / NumPy arrays) based on the 'dataset_type' field in dataset_config.
+"""
 
 import logging
 from pathlib import Path
@@ -10,6 +15,8 @@ from torch.utils.data import DataLoader, random_split
 from torchvision import transforms
 from torchvision.datasets import ImageFolder
 
+from .tabular_loader import load_tabular_dataset
+
 logger = logging.getLogger(__name__)
 
 
@@ -20,8 +27,13 @@ def load_dataset(
     num_workers: int = 0,
 ) -> Tuple[DataLoader, DataLoader, DataLoader]:
     """
-    Load image dataset with standard ImageNet preprocessing.
+    Universal dataset loader — dispatches to image or tabular loader.
 
+    Set ``dataset_config['dataset_type'] = 'tabular'`` (or ``'csv'`` / ``'numpy'``)
+    to load tabular data; otherwise the default image pipeline is used.
+
+    Image loader
+    ------------
     Handles two directory structures:
     1. dataset_path/train/ and dataset_path/val/ (or test/) — use as-is
     2. dataset_path/train/ only — split train 80/20 into train/val
@@ -29,12 +41,18 @@ def load_dataset(
     For training data, applies RandomResizedCrop and RandomHorizontalFlip.
     All data receives standard ImageNet normalization.
 
+    Tabular loader
+    --------------
+    Supports CSV files and NumPy arrays; see ``tabular_loader.load_tabular_dataset``
+    for the full list of accepted directory structures and config keys.
+
     Args:
         dataset_config: Dictionary with keys:
             - 'name': str, dataset name
             - 'path': str or Path, root directory of dataset
             - 'num_classes': int, number of classes
-            - 'image_size': int, target image size (default 224)
+            - 'dataset_type': str, 'image' (default) | 'tabular' | 'csv' | 'numpy'
+            - 'image_size': int, target image size (default 224)  [image only]
         batch_size: int, batch size for DataLoaders (default 16)
         seed: int, random seed for deterministic splitting (default 42)
         num_workers: int, number of workers for DataLoaders (default 0)
@@ -46,6 +64,14 @@ def load_dataset(
         FileNotFoundError: if dataset directory structure is invalid
         ValueError: if dataset_config is missing required keys
     """
+    dataset_type = str(dataset_config.get("dataset_type", "image")).lower()
+    if dataset_type in ("tabular", "csv", "numpy"):
+        return load_tabular_dataset(
+            dataset_config,
+            batch_size=batch_size,
+            seed=seed,
+            num_workers=num_workers,
+        )
     # Validate config
     required_keys = {"name", "path", "num_classes", "image_size"}
     if not required_keys.issubset(dataset_config.keys()):

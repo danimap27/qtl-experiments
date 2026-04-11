@@ -1,8 +1,9 @@
 """
-Heads module: Classification heads for quantum transfer learning.
+Heads module: Classification and clustering heads for quantum transfer learning.
 
-Factory function to instantiate different head architectures (linear, MLP, quantum).
-Supports configuration-driven creation with ablation study overrides.
+Factory function to instantiate different head architectures (linear, MLP,
+quantum, clustering).  Supports configuration-driven creation with ablation
+study overrides.
 """
 
 import logging
@@ -16,6 +17,7 @@ from .mlp_a_head import MLPAHead
 from .mlp_b_head import MLPBHead
 from .pennylane_head import PennyLaneHead
 from .qiskit_head import QiskitHead
+from .clustering_head import KMeansHead, DBSCANHead
 
 logger = logging.getLogger(__name__)
 
@@ -27,12 +29,14 @@ def get_head(
     overrides: Optional[Dict[str, Any]] = None,
 ) -> nn.Module:
     """
-    Factory function to instantiate a classification head.
+    Factory function to instantiate a classification or clustering head.
 
     Args:
         head_config: Configuration dictionary with keys:
             - name (str): Head type identifier
-            - type (str): Head class name (e.g., 'LinearHead', 'MLPAHead', 'PennyLaneHead')
+            - type (str): Head class name / category:
+                'classical' | 'pennylane' | 'qiskit' | 'clustering'
+            - task_type (str, optional): 'classification' (default) | 'clustering'
             - n_qubits (int, optional): Number of qubits for quantum heads
             - depth (int, optional): Circuit depth for quantum heads
             - noise (bool, optional): Enable noise for quantum heads
@@ -43,8 +47,14 @@ def get_head(
             - hidden_dims (list, optional): Hidden dimensions for MLP-B
             - activation (str, optional): Activation function name
             - backend (str, optional): Quantum backend (e.g., 'default.qubit')
+            --- Clustering-specific ---
+            - algorithm (str): 'kmeans' | 'dbscan'  (required when type='clustering')
+            - n_clusters (int, optional): Number of clusters (default: num_classes or 2)
+            - eps (float, optional): DBSCAN neighbourhood radius (default: 0.5)
+            - min_samples (int, optional): DBSCAN min core-region points (default: 5)
+            - metric (str, optional): DBSCAN distance metric (default: 'euclidean')
         feature_dim: Input feature dimension
-        num_classes: Number of output classes
+        num_classes: Number of output classes (used as n_clusters default)
         overrides: Optional dictionary to override config values for ablation studies
             - Keys: 'n_qubits', 'depth', 'noise_channels', 'shots'
 
@@ -124,11 +134,52 @@ def get_head(
             shots=shots,
         )
 
+    # Clustering heads
+    elif head_type == "clustering" or head_name.startswith("cluster_"):
+        algorithm  = config.get("algorithm", "kmeans").lower()
+        n_clusters = config.get("n_clusters", max(num_classes, 2))
+
+        if algorithm == "kmeans":
+            max_iter     = config.get("max_iter",     300)
+            n_init       = config.get("n_init",       10)
+            tol          = config.get("tol",          1e-4)
+            random_state = config.get("random_state", 42)
+            return KMeansHead(
+                feature_dim,
+                n_clusters=n_clusters,
+                max_iter=max_iter,
+                n_init=n_init,
+                tol=tol,
+                random_state=random_state,
+            )
+
+        elif algorithm == "dbscan":
+            eps         = config.get("eps",         0.5)
+            min_samples = config.get("min_samples", 5)
+            metric      = config.get("metric",      "euclidean")
+            alg         = config.get("nn_algorithm", "auto")
+            return DBSCANHead(
+                feature_dim,
+                n_clusters=n_clusters,
+                eps=eps,
+                min_samples=min_samples,
+                metric=metric,
+                algorithm=alg,
+            )
+
+        else:
+            raise ValueError(
+                f"Unknown clustering algorithm: '{algorithm}'. "
+                f"Supported: kmeans, dbscan"
+            )
+
     else:
         raise ValueError(
             f"Unknown head: name={head_name}, type={head_type}. "
-            f"Supported types: classical, pennylane, qiskit. "
-            f"Supported names: linear, mlp_a, mlp_b, pl_ideal, pl_noisy, qk_ideal, qk_noisy"
+            f"Supported types: classical, pennylane, qiskit, clustering. "
+            f"Supported names: linear, mlp_a, mlp_b, "
+            f"pl_ideal, pl_noisy, qk_ideal, qk_noisy, "
+            f"cluster_kmeans, cluster_dbscan"
         )
 
 
