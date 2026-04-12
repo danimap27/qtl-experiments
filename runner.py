@@ -707,9 +707,9 @@ def print_dry_run_summary(runs: List[RunConfig], config: Dict[str, Any]) -> None
     qiskit = [r for r in runs if get_head_type(r.head) == "qiskit"]
 
     print("\n" + "="*60)
-    print("=== DRY RUN ===")
+    print("=== PRE-EXECUTION VALIDATION (DRY RUN) ===")
     print("="*60)
-    print(f"Total runs: {len(runs)}")
+    print(f"Total experimental configurations identified: {len(runs)}")
     print(f"Datasets: {', '.join(sorted(set(r.dataset for r in runs)))}")
     print(f"Backbones: {', '.join(sorted(set(r.backbone for r in runs)))}")
     print(f"Heads: {', '.join(sorted(set(r.head for r in runs)))}")
@@ -971,7 +971,7 @@ def main() -> int:
         else:
             paths = {"runs": os.path.join(config["output_dir"], "runs.csv")}
         existing_ids = load_existing_ids(paths["runs"])
-        logger.info(f"Found {len(existing_ids)} existing runs, will skip them")
+        logger.info(f"Detected {len(existing_ids)} previously completed runs; skipping to ensure efficiency.")
 
         # Execute runs
         if args.parallel > 1:
@@ -984,13 +984,27 @@ def main() -> int:
         # Print summary
         total = len(runs)
         print("\n" + "="*60)
-        print("=== SUMMARY ===")
+        print("=== FINAL EXPERIMENT SUMMARY ===")
         print("="*60)
         print(f"Total runs:  {total}")
         print(f"Completed:   {completed}")
         print(f"Skipped:     {skipped}")
         print(f"Errors:      {errors}")
         print("="*60 + "\n")
+
+        # --- Automatic LaTeX Table Generation ---------------------------------
+        if completed > 0 and not args.dry_run:
+            try:
+                from generate_tables import generate_all_tables
+                base_results = config.get("output_dir", "./results")
+                # output_dir points to the specific run folder; tables go to 
+                # the results root (one level up if using the NNN_... format)
+                results_root = os.path.dirname(base_results) if os.path.basename(
+                    base_results).split("_")[0].isdigit() else base_results
+                tables_dir = os.path.join(results_root, "..", "paper", "tables")
+                generate_all_tables(results_root, os.path.abspath(tables_dir))
+            except Exception as ex:
+                logger.warning(f"[TABLES] Failed to automatically generate LaTeX tables: {ex}")
 
         return 0 if errors == 0 else 1
 

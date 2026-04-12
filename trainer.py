@@ -138,6 +138,8 @@ def save_checkpoint(
         run_id: Experiment identifier.
         output_dir: Root results directory.
         tag: 'last', 'best', or 'epochN'.
+        history: Current training history dict.
+        training_log: Current training log list.
     """
     ckpt = {
         "epoch": epoch,
@@ -145,6 +147,8 @@ def save_checkpoint(
         "run_id": run_id,
         "head_state_dict": head.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
+        "history": history,
+        "training_log": training_log,
         "timestamp": datetime.now().isoformat(),
     }
     path = os.path.join(_checkpoint_dir(output_dir, run_id), f"ckpt_{tag}.pt")
@@ -158,21 +162,27 @@ def load_checkpoint(
     run_id: str,
     output_dir: str,
     tag: str = "last",
-) -> Tuple[int, float]:
+) -> Tuple[int, float, Dict[str, List[float]], List[Dict]]:
     """
     Load checkpoint into head and optimizer.
 
     Returns:
-        (start_epoch, best_val_acc) tuple.
+        (start_epoch, best_val_acc, history, training_log) tuple.
     """
     path = os.path.join(_checkpoint_dir(output_dir, run_id), f"ckpt_{tag}.pt")
     if not os.path.exists(path):
-        return 0, 0.0
+        return 0, 0.0, {}, []
     ckpt = torch.load(path, map_location="cpu")
     head.load_state_dict(ckpt["head_state_dict"])
     optimizer.load_state_dict(ckpt["optimizer_state_dict"])
     logger.info(f"Resumed from checkpoint: {path} (epoch {ckpt['epoch']+1})")
-    return ckpt["epoch"] + 1, ckpt.get("val_acc", 0.0)
+    
+    return (
+        ckpt["epoch"] + 1,
+        ckpt.get("val_acc", 0.0),
+        ckpt.get("history", {}),
+        ckpt.get("training_log", [])
+    )
 
 
 # ── Seed ──────────────────────────────────────────────────────────────────────
@@ -257,7 +267,7 @@ def train_and_evaluate(
     viz_cfg  = config.get("visualization", {})
 
     print(f"\n{'='*70}")
-    print(f"  RUN: {run_id}")
+    print(f"  INITIATING EXPERIMENT: {run_id}")
     print(f"{'='*70}")
 
     try:
@@ -358,13 +368,25 @@ def train_and_evaluate(
         # ── Resume from checkpoint ────────────────────────────────────────────
         start_epoch = 0
         best_val_acc = 0.0
+        history = {
+            "train_loss": [], "val_loss": [],
+            "train_acc":  [], "val_acc":  [],
+            "lr": [],
+        }
+        training_log = []
+
         if ckpt_cfg.get("resume", False):
-            start_epoch, best_val_acc = load_checkpoint(
-                head, optimizer, run_id, output_dir, tag="best"
+            # Try to resume from 'last' for sequential continuity
+            res_epoch, res_best, res_history, res_log = load_checkpoint(
+                head, optimizer, run_id, output_dir, tag="last"
             )
-            if start_epoch > 0:
+            if res_epoch > 0:
+                start_epoch = res_epoch
+                best_val_acc = res_best
+                history = res_history
+                training_log = res_log
                 print(f"  Resumed from epoch {start_epoch}  "
-                      f"(best_val_acc={best_val_acc*100:.1f}%)")
+                      f"(prev_acc={best_val_acc*100:.1f}%)")
 
         # ── Energy tracker ────────────────────────────────────────────────────
         energy_kwh = None
@@ -381,13 +403,6 @@ def train_and_evaluate(
             except Exception as e:
                 logger.warning(f"CodeCarbon not available: {e}")
 
-        # ── Training loop ─────────────────────────────────────────────────────
-        training_log  = []
-        history = {
-            "train_loss": [], "val_loss": [],
-            "train_acc":  [], "val_acc":  [],
-            "lr": [],
-        }
         total_start = time.perf_counter()
 
         print(f"\n  {'Epoch':>5}  {'TrainLoss':>10}  {'ValLoss':>9}  "
@@ -506,15 +521,18 @@ def train_and_evaluate(
             ckpt_saved = False
             if ckpt_cfg.get("enabled", True):
                 save_checkpoint(head, optimizer, epoch, val_acc,
-                                run_id, output_dir, tag="last")
+                                run_id, output_dir, tag="last",
+                                history=history, training_log=training_log)
                 if val_acc > best_val_acc:
                     best_val_acc = val_acc
                     save_checkpoint(head, optimizer, epoch, val_acc,
-                                    run_id, output_dir, tag="best")
+                                    run_id, output_dir, tag="best",
+                                    history=history, training_log=training_log)
                     ckpt_saved = True
                 if ckpt_cfg.get("save_every_epoch", False):
                     save_checkpoint(head, optimizer, epoch, val_acc,
-                                    run_id, output_dir, tag=f"epoch{epoch+1:03d}")
+                                    run_id, output_dir, tag=f"epoch{epoch+1:03d}",
+                                    history=history, training_log=training_log)
             else:
                 best_val_acc = max(best_val_acc, val_acc)
 
@@ -532,8 +550,8 @@ def train_and_evaluate(
             overall_bar.close()
 
         train_time_s = time.perf_counter() - total_start
-        print(f"\n  Training finished in {_fmt_time(train_time_s)}  "
-              f"best_val_acc={best_val_acc*100:.2f}%\n")
+        print(f"\n  Training completed successfully in {_fmt_time(train_time_s)}  "
+              f"Peak Validation Accuracy: {best_val_acc*100:.2f}%\n")
 
         # ── Stop energy tracker ───────────────────────────────────────────────
         if tracker:
@@ -545,7 +563,7 @@ def train_and_evaluate(
         # ── Test evaluation ───────────────────────────────────────────────────
         predictions = []
         head.eval()
-        print("  Evaluating on test set...")
+        print("  Starting final evaluation on the test set...")
         test_bar = _tqdm(test_loader, desc="  Test", unit="batch",
                          dynamic_ncols=True, leave=False) if HAS_TQDM else test_loader
 
@@ -590,7 +608,7 @@ def train_and_evaluate(
                               if len(np.unique(y_true)) > 1 else 0.0,
         }
 
-        print(f"\n  ── Test Results {'─'*50}")
+        print(f"\n  ── Final Evaluation Results (Test Partition) {'─'*30}")
         for k, v in metrics.items():
             print(f"    {k:<22}: {v:.4f}")
         print(f"  {'─'*65}\n")
@@ -663,7 +681,7 @@ def _run_clustering(
     generates cluster visualizations.
     """
     run_id = _rc.get("run_id", "unknown")
-    print("  Mode     : CLUSTERING (unsupervised)")
+    print("  Execution Mode: UNSUPERVISED CLUSTERING")
 
     # Extract all features ────────────────────────────────────────────────────
     def extract(loader):
