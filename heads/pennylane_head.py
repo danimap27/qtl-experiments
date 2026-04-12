@@ -136,7 +136,7 @@ class PennyLaneHead(nn.Module):
     # Device selection
     # ------------------------------------------------------------------
 
-    def _select_device(self) -> qml.Device:
+    def _select_device(self) -> Any:
         """
         Choose the best available PennyLane device.
 
@@ -204,7 +204,10 @@ class PennyLaneHead(nn.Module):
                 return "adjoint"
             return "backprop"
 
-        return "param_shift"  # always valid
+        if requested == "spsa":
+            return "spsa"
+            
+        return "parameter-shift"  # always valid
 
     # ------------------------------------------------------------------
     # QNode construction
@@ -353,5 +356,5 @@ class PennyLaneHead(nn.Module):
                 q_out = torch.as_tensor(q_out, dtype=torch.float32)
             q_outputs.append(q_out)
 
-        q_out_tensor = torch.stack(q_outputs)   # (batch_size, n_qubits)
+        q_out_tensor = torch.stack(q_outputs).to(torch.float32)   # (batch_size, n_qubits)
         return self.output(q_out_tensor)         # (batch_size, num_classes)

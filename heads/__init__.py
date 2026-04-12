@@ -104,6 +104,7 @@ def get_head(
         noise = config.get("noise", False)
         noise_channels = config.get("noise_channels", None)
         noise_params = config.get("noise_params", None)
+        gradient_method = config.get("gradient_method", "adjoint")
         return PennyLaneHead(
             feature_dim,
             num_classes,
@@ -113,6 +114,7 @@ def get_head(
             noise=noise,
             noise_channels=noise_channels,
             noise_params=noise_params,
+            gradient_method=gradient_method,
         )
 
     # Qiskit quantum heads
@@ -123,6 +125,7 @@ def get_head(
         noise_channels = config.get("noise_channels", None)
         noise_params = config.get("noise_params", None)
         shots = config.get("shots", 1024)
+        gradient_method = config.get("gradient_method", "reverse")
         return QiskitHead(
             feature_dim,
             num_classes,
@@ -132,6 +135,7 @@ def get_head(
             noise_channels=noise_channels,
             noise_params=noise_params,
             shots=shots,
+            gradient_method=gradient_method,
         )
 
     # Clustering heads

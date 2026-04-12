@@ -38,13 +38,18 @@ import yaml
 # Global lock for thread-safe CSV writing
 _csv_lock = Lock()
 
-# Configure logging
+# Configure logging with UTF-8 to avoid UnicodeEncodeError on Windows (cp1252)
+_log_handler = logging.StreamHandler(sys.stdout)
+if hasattr(_log_handler.stream, "reconfigure"):
+    _log_handler.stream.reconfigure(encoding="utf-8")
+elif hasattr(_log_handler, "setStream"):
+    import io
+    _log_handler.setStream(io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8"))
+_log_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-    ],
+    handlers=[_log_handler],
 )
 logger = logging.getLogger(__name__)
 
@@ -212,21 +217,76 @@ def load_config(config_path: str) -> Dict[str, Any]:
     return config
 
 
-def get_output_paths(output_dir: str, machine_id: Optional[str] = None) -> Dict[str, str]:
-    """Get output file paths with optional machine_id suffix.
+def create_run_folder(
+    base_output_dir: str,
+    machine_id: Optional[str],
+    args: "argparse.Namespace",
+    config: Dict[str, Any],
+) -> str:
+    """Create a numbered, descriptive folder for this execution inside base_output_dir.
+
+    The folder name format is: NNN_<machine_id>_<description>
+    where NNN auto-increments by 1 for each existing run folder.
 
     Args:
-        output_dir: Base output directory
-        machine_id: Optional machine identifier for CSV suffix
+        base_output_dir: Root output directory (e.g. ./results)
+        machine_id: Optional machine identifier
+        args: Parsed CLI arguments used to build description
+        config: Config dict (used to extract experiment name)
+
+    Returns:
+        Absolute path to the newly created run folder.
+    """
+    os.makedirs(base_output_dir, exist_ok=True)
+
+    # Find highest existing NNN prefix among run folders
+    existing_ids = []
+    for name in os.listdir(base_output_dir):
+        if os.path.isdir(os.path.join(base_output_dir, name)):
+            parts = name.split("_", 1)
+            if parts[0].isdigit():
+                existing_ids.append(int(parts[0]))
+    next_id = (max(existing_ids) + 1) if existing_ids else 1
+
+    # Build descriptive slug from CLI filters
+    parts = []
+    if machine_id:
+        parts.append(machine_id)
+    if args.dataset:
+        parts.append(args.dataset.replace(",", "-"))
+    if args.backbone:
+        parts.append(args.backbone.replace(",", "-"))
+    if args.head:
+        parts.append(args.head.replace(",", "-"))
+    elif args.head_type:
+        parts.append(args.head_type)
+    if args.study:
+        parts.append(args.study)
+    if not parts:
+        exp_name = config.get("experiment_name", "experiment")
+        parts.append(exp_name)
+
+    slug = "_".join(parts)
+    folder_name = f"{next_id:03d}_{slug}"
+    run_folder = os.path.join(base_output_dir, folder_name)
+    os.makedirs(run_folder, exist_ok=True)
+    logger.info(f"Run folder created: {run_folder}")
+    return run_folder
+
+
+def get_output_paths(run_folder: str) -> Dict[str, str]:
+    """Get output file paths inside a run folder.
+
+    Args:
+        run_folder: Run-specific output folder (already created)
 
     Returns:
         Dict with keys: runs, predictions, training_log pointing to output CSVs
     """
-    suffix = f"_{machine_id}" if machine_id else ""
     return {
-        "runs": os.path.join(output_dir, f"runs{suffix}.csv"),
-        "predictions": os.path.join(output_dir, f"predictions{suffix}.csv"),
-        "training_log": os.path.join(output_dir, f"training_log{suffix}.csv"),
+        "runs": os.path.join(run_folder, "runs.csv"),
+        "predictions": os.path.join(run_folder, "predictions.csv"),
+        "training_log": os.path.join(run_folder, "training_log.csv"),
     }
 
 
@@ -543,7 +603,7 @@ def log_to_errors(errors_log: str, run_id: str, error: Exception) -> None:
     """
     with _csv_lock:
         os.makedirs(os.path.dirname(errors_log), exist_ok=True)
-        with open(errors_log, "a") as f:
+        with open(errors_log, "a", encoding="utf-8") as f:
             timestamp = datetime.now().isoformat()
             f.write(f"[{timestamp}] [{run_id}] {type(error).__name__}: {str(error)}\n")
             f.write(traceback.format_exc())
@@ -756,8 +816,10 @@ def execute_runs_sequential(
     Returns:
         Tuple of (completed, skipped, errors) counts
     """
-    paths = get_output_paths(config["output_dir"], args.machine_id)
-    errors_log = os.path.join(config["output_dir"], "errors.log")
+    # output_dir already points to the run folder (set by main)
+    run_folder = config["output_dir"]
+    paths = get_output_paths(run_folder)
+    errors_log = os.path.join(run_folder, "errors.log")
 
     completed = 0
     skipped = 0
@@ -804,8 +866,10 @@ def execute_runs_parallel(
     Returns:
         Tuple of (completed, skipped, errors) counts
     """
-    paths = get_output_paths(config["output_dir"], args.machine_id)
-    errors_log = os.path.join(config["output_dir"], "errors.log")
+    # output_dir already points to the run folder (set by main)
+    run_folder = config["output_dir"]
+    paths = get_output_paths(run_folder)
+    errors_log = os.path.join(run_folder, "errors.log")
 
     completed = 0
     skipped = 0
@@ -899,7 +963,13 @@ def main() -> int:
             return 0
 
         # Get output paths and check for resumability
-        paths = get_output_paths(config["output_dir"], args.machine_id)
+        # For dry-run we still create the folder so the ID is reserved
+        if not args.dry_run:
+            run_folder = create_run_folder(config["output_dir"], args.machine_id, args, config)
+            paths = get_output_paths(run_folder)
+            config["output_dir"] = run_folder
+        else:
+            paths = {"runs": os.path.join(config["output_dir"], "runs.csv")}
         existing_ids = load_existing_ids(paths["runs"])
         logger.info(f"Found {len(existing_ids)} existing runs, will skip them")
 

@@ -90,9 +90,7 @@ class QiskitHead(nn.Module):
         self.noise_params = noise_params or {}
         self.shots = shots
         self.device_preference = device_preference
-        # reverse/adjoint only works with StatevectorEstimator (ideal, CPU).
-        # For noisy (AerEstimatorV2) fall back to param_shift.
-        self.gradient_method = gradient_method if not noise else "param_shift"
+        self.gradient_method = "param_shift" if (noise and gradient_method == "reverse") else gradient_method
 
         # Number of variational parameters: depth * n_qubits * 3 (RX, RY, RX per qubit per layer)
         self.num_weights = depth * n_qubits * 3
@@ -100,11 +98,13 @@ class QiskitHead(nn.Module):
         # Classical projection: feature_dim -> n_qubits (no bias, keeps param count low)
         self.proj = nn.Linear(feature_dim, n_qubits, bias=False)
 
+        # Build QNN + TorchConnector (registers quantum weights as nn.Parameter).
+        # We do this BEFORE self.output and consume torch.randn to align the random 
+        # sequence exactly with PennyLaneHead for mathematical fairness.
+        self._create_qnn()
+
         # Classical output layer
         self.output = nn.Linear(n_qubits, num_classes)
-
-        # Build QNN + TorchConnector (registers quantum weights as nn.Parameter)
-        self._create_qnn()
 
         logger.info(
             f"QiskitHead initialized: {n_qubits} qubits, depth={depth}, "
@@ -290,11 +290,12 @@ class QiskitHead(nn.Module):
             observables=observables,
             input_params=list(input_params),
             weight_params=list(weight_params),
+            input_gradients=True,
             **({"gradient": gradient} if gradient is not None else {}),
         )
 
         # TorchConnector registers weights as self.qnn_torch.weight (nn.Parameter)
-        init_weights = (0.01 * np.random.randn(self.num_weights)).astype(np.float32)
+        init_weights = (0.01 * torch.randn(self.num_weights)).numpy().astype(np.float32)
         self.qnn_torch = TorchConnector(self.qnn, initial_weights=init_weights)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

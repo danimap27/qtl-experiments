@@ -1,0 +1,300 @@
+# =============================================================
+# CONFIGURACION GENERAL
+# =============================================================
+experiment_name: "qtl_revision_v2"
+output_dir: "./results"
+device: "cpu"
+
+# =============================================================
+# SEEDS
+# =============================================================
+seeds: [42]
+
+# =============================================================
+# DATASETS
+# =============================================================
+datasets:
+  - name: "hymenoptera"
+    path: "./data/datasets/hymenoptera"
+    num_classes: 2
+    image_size: 224
+  - name: "brain_tumor"
+    path: "./data/brain_tumor"
+    num_classes: 2
+    image_size: 224
+  - name: "cats_vs_dogs"
+    path: "./data/cats_vs_dogs"
+    num_classes: 2
+    image_size: 224
+  - name: "solar_dust"
+    path: "./data/solar_dust"
+    num_classes: 2
+    image_size: 224
+
+# =============================================================
+# BACKBONES
+# =============================================================
+backbones:
+  - name: "resnet18"
+    feature_dim: 512
+  - name: "mobilenetv2"
+    feature_dim: 1280
+  - name: "efficientnet_b0"
+    feature_dim: 1280
+  - name: "regnet_x_400mf"
+    feature_dim: 400
+
+# =============================================================
+# HEADS
+# =============================================================
+heads:
+  # --- Clasicos ---
+  - name: "linear"
+    type: "classical"
+    description: "Baseline original: capa lineal sin no-linealidad"
+
+  - name: "mlp_a"
+    type: "classical"
+    description: "MLP parameter-matched (~12 params): Linear->tanh->Linear"
+    hidden_dim: 4
+    activation: "tanh"
+
+  - name: "mlp_b"
+    type: "classical"
+    description: "MLP estandar: 128->ReLU->64->ReLU->C"
+    hidden_dims: [128, 64]
+    activation: "relu"
+
+  # --- Cuanticos PennyLane ---
+  - name: "pl_ideal"
+    type: "pennylane"
+    description: "PennyLane ideal (default.qubit, parameter-shift)"
+    backend: "lightning.qubit"
+    n_qubits: 4
+    depth: 3
+    gradient_method: "spsa"
+    noise: false
+    noise_channels: []
+
+  - name: "pl_noisy"
+    type: "pennylane"
+    description: "PennyLane noisy (default.mixed, Heron r2 calibration)"
+    backend: "default.mixed"
+    n_qubits: 4
+    depth: 3
+    noise: true
+    gradient_method: "spsa"
+    noise_channels: ["amplitude_damping", "phase_damping", "depolarizing"]
+    noise_params:
+      T1_us: 250
+      T2_us: 150
+      t1q_ns: 32
+      t2q_ns: 68
+      p1q: 0.0002
+      p2q: 0.005
+      readout_error: 0.012
+
+  # --- Cuanticos Qiskit ---
+  - name: "qk_ideal"
+    type: "qiskit"
+    description: "Qiskit ideal (StatevectorSampler, EstimatorQNN)"
+    backend: "statevector"
+    n_qubits: 4
+    depth: 3
+    noise: false
+    shots: null
+    gradient_method: "spsa"
+
+  - name: "qk_noisy"
+    type: "qiskit"
+    description: "Qiskit noisy (AerSampler, SamplerQNN, Heron r2)"
+    backend: "aer"
+    n_qubits: 4
+    depth: 3
+    noise: true
+    shots: 1024
+    gradient_method: "spsa"
+    noise_params:
+      T1_us: 250
+      T2_us: 150
+      p1q: 0.0002
+      p2q: 0.005
+      readout_error: 0.012
+
+# =============================================================
+# HIPERPARAMETROS DE ENTRENAMIENTO
+# =============================================================
+training:
+  optimizer: "adam"
+  lr: 0.001
+  batch_size: 16
+  epochs: 10
+  scheduler:
+    type: "step_lr"
+    step_size: 3
+    gamma: 0.9
+  loss: "cross_entropy"
+
+# =============================================================
+# ENERGY TRACKING (CodeCarbon) -- activo por defecto
+# =============================================================
+energy:
+  enabled: false
+  tool: "codecarbon"
+
+# =============================================================
+# ESTUDIOS ADICIONALES
+# =============================================================
+
+# --- Ablacion qubits x profundidad ---
+ablation:
+  enabled: true
+  datasets: ["hymenoptera", "solar_dust"]
+  backbones: ["resnet18"]
+  heads: ["pl_ideal", "qk_ideal"]
+  qubits: [2, 4, 6]
+  depths: [1, 3, 5]
+  seeds: [42]
+
+# --- Descomposicion de ruido por canal ---
+noise_decomposition:
+  enabled: true
+  datasets: ["hymenoptera", "brain_tumor", "cats_vs_dogs", "solar_dust"]
+  backbones: ["resnet18", "mobilenetv2", "efficientnet_b0", "regnet_x_400mf"]
+  base_head: "pl_noisy"
+  channels:
+    - name: "amplitude_damping"
+      noise_channels: ["amplitude_damping"]
+    - name: "phase_damping"
+      noise_channels: ["phase_damping"]
+    - name: "depolarizing"
+      noise_channels: ["depolarizing"]
+  n_qubits: 4
+  depth: 3
+  seeds: [42]
+
+# --- Simulacion condiciones = hardware real ---
+sim_as_hardware:
+  enabled: true
+  datasets: ["hymenoptera"]
+  backbones: ["resnet18", "mobilenetv2", "efficientnet_b0", "regnet_x_400mf"]
+  heads: ["linear", "pl_ideal", "pl_noisy", "qk_ideal", "qk_noisy"]
+  epochs: 5
+  shots_override: 100
+  seeds: [42]
+
+# --- Barren plateaus ---
+barren_plateaus:
+  enabled: true
+  datasets: ["hymenoptera"]
+  backbones: ["resnet18"]
+  heads: ["pl_ideal", "pl_noisy"]
+  n_initializations: 200
+  qubits: [2, 4, 6]
+  depth: 3
+
+# --- Transpilacion para escalabilidad ---
+transpilation:
+  enabled: true
+  qubits: [2, 4, 6, 8]
+  depth: 3
+  backend: "ibm_torino"
+
+# =============================================================
+# CHECKPOINTS
+# =============================================================
+checkpoints:
+  enabled: true
+  # Save best model (by val accuracy / silhouette for clustering)
+  save_best: true
+  # Save last checkpoint at end of every epoch
+  save_last: true
+  # Save a checkpoint every N epochs (0 = disabled)
+  save_every_n_epochs: 0
+  # Resume from best checkpoint if found in output_dir
+  resume: false
+
+# =============================================================
+# VISUALIZATION
+# =============================================================
+visualization:
+  enabled: true
+  # Output directory relative to run output_dir
+  plots_subdir: "plots"
+  # Plots to generate for classification runs
+  classification:
+    - learning_curves
+    - confusion_matrix
+    - roc_curve
+    - pr_curve
+    - class_metrics
+    - probability_histogram
+    - classification_summary
+  # Plots to generate for clustering runs
+  clustering:
+    - cluster_scatter_pca
+    - cluster_scatter_tsne
+    - silhouette
+    - elbow_curve
+    - cluster_sizes
+    - feature_distributions
+  # Figure resolution in DPI (higher = larger files)
+  dpi: 150
+
+# =============================================================
+# DATASETS — TABULAR EXAMPLES
+# (uncomment / adapt to add non-image datasets)
+# =============================================================
+# datasets:
+#
+#   # ---- Iris (CSV, supervised) ----
+#   - name: "iris"
+#     path: "./data/datasets/iris/iris.csv"
+#     num_classes: 3
+#     dataset_type: "tabular"
+#     label_column: "species"
+#     scale: true
+#     train_ratio: 0.70
+#     val_ratio: 0.15
+#
+#   # ---- Pre-split NumPy arrays (supervised) ----
+#   - name: "custom_tabular"
+#     path: "./data/datasets/custom"
+#     num_classes: 2
+#     dataset_type: "numpy"
+#     scale: true
+#
+#   # ---- Unsupervised clustering dataset ----
+#   - name: "blobs_unsupervised"
+#     path: "./data/datasets/blobs/data.csv"
+#     num_classes: 0          # 0 = unsupervised
+#     dataset_type: "tabular"
+#     label_column: "label"   # ignored when num_classes=0
+#     scale: true
+
+# =============================================================
+# HEADS — CLUSTERING EXAMPLES
+# (uncomment / adapt to run unsupervised experiments)
+# =============================================================
+# heads:
+#
+#   # ---- K-Means ----
+#   - name: "cluster_kmeans"
+#     type: "clustering"
+#     task_type: "clustering"
+#     algorithm: "kmeans"
+#     description: "K-Means clustering (scikit-learn)"
+#     n_clusters: 2         # defaults to num_classes if omitted
+#     n_init: 10
+#     max_iter: 300
+#     random_state: 42
+#
+#   # ---- DBSCAN ----
+#   - name: "cluster_dbscan"
+#     type: "clustering"
+#     task_type: "clustering"
+#     algorithm: "dbscan"
+#     description: "DBSCAN density clustering (scikit-learn)"
+#     eps: 0.5
+#     min_samples: 5
+#     metric: "euclidean"
