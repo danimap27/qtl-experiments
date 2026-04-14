@@ -199,6 +199,10 @@ def generate_tables_trigger():
     input("\nPress Enter to return to menu...")
 
 def main():
+    # Ensure critical directories exist
+    os.makedirs("logs", exist_ok=True)
+    os.makedirs("results", exist_ok=True)
+
     while True:
         clear_screen()
         print_header()
