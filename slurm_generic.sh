@@ -10,8 +10,18 @@
 #SBATCH --mem=16G
 
 # 1. Environment Activation
-source ~/miniconda3/etc/profile.d/conda.sh
-conda activate qtl
+# Explicit path for Hercules Cluster setup
+CONDA_BASE="/lustre/software/easybuild/common/software/Miniconda3/4.9.2"
+
+if [ -f "$CONDA_BASE/etc/profile.d/conda.sh" ]; then
+    source "$CONDA_BASE/etc/profile.d/conda.sh"
+    conda activate qtl
+else
+    # Fallback to auto-detection if the above fails
+    CONDA_BASE=$(conda info --base 2>/dev/null || echo "$HOME/miniconda3")
+    source "$CONDA_BASE/etc/profile.d/conda.sh"
+    conda activate qtl
+fi
 
 # 2. Workspace Setup
 cd $SLURM_SUBMIT_DIR

@@ -2,8 +2,8 @@
 # Instalar con: pip install -r requirements.txt
 torch==2.4.1
 torchvision==0.19.1
-pennylane==0.34.0
-pennylane-lightning==0.34.0
+pennylane==0.42.0
+pennylane-lightning==0.42.0
 qiskit==1.2.4
 qiskit-aer==0.15.1
 qiskit-machine-learning==0.8.1  # 0.8.x es la primera serie compatible con Qiskit 1.x
