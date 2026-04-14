@@ -81,7 +81,7 @@ def get_slurm_tasks(file_path: str) -> int:
     """Count lines in a command file."""
     if not os.path.exists(file_path):
         return 0
-    with open(file_path, "r") as f:
+    with open(file_path, "r", encoding="utf-8-sig") as f:
         return len([line for line in f if line.strip()])
 
 def submit_phase(key: str, dependency_id: Optional[str] = None):
