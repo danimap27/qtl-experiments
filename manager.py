@@ -118,9 +118,10 @@ def submit_phase(key: str, dependency_id: Optional[str] = None):
 
     dep_arg = f"--dependency=afterok:{dependency_id}" if dependency_id else ""
     
-    # Construct sbatch command
+    # Construct sbatch command (ensure no spaces in job name)
+    job_name = f"QTL_{key}_{name.split(':')[0]}".replace(" ", "_")
     sbatch_cmd = (
-        f"sbatch --parsable --job-name=QTL_{key}_{name.split(':')[0]} "
+        f"sbatch --parsable --job-name={job_name} "
         f"--array=1-{n_tasks}%40 {dep_arg} "
         f"--export=CMD_FILE={file_path} slurm_generic.sh"
     )
