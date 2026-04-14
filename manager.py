@@ -63,18 +63,30 @@ def refresh_commands():
     """Regenerate the .txt command files using runner.py."""
     print("\n[INFO] Refreshing command lists from config.yaml...")
     
-    # Phase 1
-    run_command(f"python runner.py --config {CONFIG} --head linear,mlp_a,mlp_b --dry-run --export-commands > cmds_1_classical.txt")
-    # Phase 2
-    run_command(f"python runner.py --config {CONFIG} --head pl_ideal,qk_ideal --dry-run --export-commands > cmds_2_ideal.txt")
-    # Phase 3
-    run_command(f"python runner.py --config {CONFIG} --head pl_noisy,qk_noisy --dry-run --export-commands > cmds_3_noisy.txt")
-    # Phase 4 (Studies)
-    run_command(f"python runner.py --config {CONFIG} --study ablation --dry-run --export-commands > cmds_4_others.txt")
-    run_command(f"python runner.py --config {CONFIG} --study noise_decomposition --dry-run --export-commands >> cmds_4_others.txt")
-    run_command(f"python runner.py --config {CONFIG} --study sim_as_hardware --dry-run --export-commands >> cmds_4_others.txt")
+    # Construct commands
+    commands = [
+        (f"python runner.py --config {CONFIG} --head linear,mlp_a,mlp_b --dry-run --export-commands > cmds_1_classical.txt", "Phase 1"),
+        (f"python runner.py --config {CONFIG} --head pl_ideal,qk_ideal --dry-run --export-commands > cmds_2_ideal.txt", "Phase 2"),
+        (f"python runner.py --config {CONFIG} --head pl_noisy,qk_noisy --dry-run --export-commands > cmds_3_noisy.txt", "Phase 3"),
+        (f"python runner.py --config {CONFIG} --study ablation --dry-run --export-commands > cmds_4_others.txt", "Phase 4 (Ablation)"),
+        (f"python runner.py --config {CONFIG} --study noise_decomposition --dry-run --export-commands >> cmds_4_others.txt", "Phase 4 (Noise)"),
+        (f"python runner.py --config {CONFIG} --study sim_as_hardware --dry-run --export-commands >> cmds_4_others.txt", "Phase 4 (Scalability)"),
+    ]
+
+    for cmd, name in commands:
+        print(f"  Generating {name}...", end=" ", flush=True)
+        success = run_command(cmd)
+        if success:
+            print("[OK]")
+        else:
+            print("[FAILED]")
     
-    print("[OK] Command files (cmds_*.txt) updated.")
+    print("\n[VERIFY] Task counts:")
+    for key, (path, name) in COMMAND_FILES.items():
+        count = get_slurm_tasks(path)
+        print(f"  - {name}: {count} tasks found")
+
+    print("\n[OK] Refresh complete.")
     input("\nPress Enter to return to menu...")
 
 def get_slurm_tasks(file_path: str) -> int:
