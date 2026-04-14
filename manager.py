@@ -78,11 +78,19 @@ def refresh_commands():
     input("\nPress Enter to return to menu...")
 
 def get_slurm_tasks(file_path: str) -> int:
-    """Count lines in a command file."""
+    """Count lines in a command file with robust encoding detection."""
     if not os.path.exists(file_path):
         return 0
-    with open(file_path, "r", encoding="utf-8-sig") as f:
-        return len([line for line in f if line.strip()])
+    
+    # Try common encodings to handle files from different OSs
+    for enc in ["utf-8-sig", "utf-16", "latin1"]:
+        try:
+            with open(file_path, "r", encoding=enc) as f:
+                lines = [line for line in f if line.strip()]
+                return len(lines)
+        except (UnicodeDecodeError, UnicodeError):
+            continue
+    return 0
 
 def submit_phase(key: str, dependency_id: Optional[str] = None):
     """Submit a specific phase to SLURM."""
