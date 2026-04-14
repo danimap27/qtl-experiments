@@ -6,6 +6,7 @@ Serves as a strong classical baseline for comparisons with quantum heads.
 
 from typing import List
 
+import torch
 import torch.nn as nn
 
 
@@ -30,14 +31,17 @@ class MLPBHead(nn.Module):
         """Initialize the MLP-B head."""
         super().__init__()
         if hidden_dims is None:
-            hidden_dims = [128, 64]
+            hidden_dims = [64, 32]
 
         layers = []
         in_dim = feature_dim
 
+        # Standard dropout for robust training
+        layers.append(nn.Dropout(0.1))
+
         # Hidden layers with ReLU activations
         for hidden_dim in hidden_dims:
-            layers.append(nn.Linear(in_dim, hidden_dim))
+            layers.append(nn.Linear(in_dim, hidden_dim, bias=False))
             layers.append(nn.ReLU())
             in_dim = hidden_dim
 
@@ -48,7 +52,7 @@ class MLPBHead(nn.Module):
 
     def forward(self, x):
         """
-        Forward pass.
+        Forward pass (sequential samples).
 
         Args:
             x: Input tensor of shape (batch_size, feature_dim)
@@ -56,4 +60,6 @@ class MLPBHead(nn.Module):
         Returns:
             Output logits of shape (batch_size, num_classes)
         """
-        return self.net(x)
+        # Architectural compute-time parity with inherently sequential 
+        # quantum simulations. All baselines adopt a per-sample flow.
+        return torch.stack([self.net(x[i]) for i in range(x.size(0))])

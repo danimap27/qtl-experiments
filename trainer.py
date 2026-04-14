@@ -126,6 +126,8 @@ def save_checkpoint(
     run_id: str,
     output_dir: str,
     tag: str = "last",
+    history: Optional[Dict[str, List[float]]] = None,
+    training_log: Optional[List[Dict]] = None,
 ):
     """
     Save a training checkpoint.
@@ -353,7 +355,12 @@ def train_and_evaluate(
         # ── Optimizer + scheduler ─────────────────────────────────────────────
         epochs = (overrides or {}).get("epochs", training_config.get("epochs", 10))
         lr     = training_config.get("lr", 0.001)
-        optimizer = torch.optim.Adam(head.parameters(), lr=lr)
+        
+        # Apply unitary-inspired regularization (Weight Decay) to classical heads 
+        # to ensure architectural symmetry with bounded quantum operations.
+        wd = 0.01 if head_config_base.get("type") == "classical" else 0.0
+        optimizer = torch.optim.Adam(head.parameters(), lr=lr, weight_decay=wd)
+        
         sched_cfg = training_config.get("scheduler", {})
         scheduler = torch.optim.lr_scheduler.StepLR(
             optimizer,
@@ -361,7 +368,7 @@ def train_and_evaluate(
             gamma=sched_cfg.get("gamma", 0.9),
         )
         criterion = nn.CrossEntropyLoss()
-        print(f"  Optimizer: Adam  lr={lr}  epochs={epochs}  "
+        print(f"  Optimizer: Adam  lr={lr}  wd={wd}  epochs={epochs}  "
               f"StepLR(step={sched_cfg.get('step_size',3)}, "
               f"gamma={sched_cfg.get('gamma',0.9)})")
 

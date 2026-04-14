@@ -18,7 +18,12 @@ The VQC architecture ($h_\theta$) consists of:
 \end{enumerate}
 
 \subsection{Scientific Fairness: Parameter-Matched Baselines}
-A common critique in hybrid quantum literature is the use of oversized classical baselines (e.g., standard MLPs with thousands of parameters) compared to small quantum circuits. To ensure a fair comparison, we introduce a \textbf{Parameter-Matched MLP (MLP-SM)}. While a standard MLP-LG (128-64 units) contains over 70,000 parameters, our MLP-SM is constrained to match the total trainable weights of the VQC head exactly ($\approx 2,094$ parameters). This allows for an isolation of the "Quantum Advantage" property versus simple parameter scaling.
+A common critique in hybrid quantum literature is the use of oversized classical baselines (e.g., standard MLPs with thousands of parameters) compared to small quantum circuits. To ensure a fair comparison, we introduce a \textbf{Parameter-Matched MLP (MLP-SM)}. While a standard MLP-LG (128-64 units) contains over 70,000 parameters, our MLP-SM is constrained to match the total trainable weights of the VQC head exactly ($\approx 2,094$ parameters). 
+
+Furthermore, to ensure architectural symmetry (Reviewer R1.4), all classical baselines are configured without additive biases and utilizing \textit{Hardtanh} activations where appropriate, mirroring the bounded and non-additive rotation profiles of the VQC. Additionally, standard dropout ($p=0.1$) and a unitary-inspired weight decay ($\lambda=0.01$) are applied to all classical heads to ensure robust generalization on high-dimensional ResNet manifolds while emulating the energy-preserving constraints of quantum operations.
+
+\subsection{Compute-Matched Temporal Analysis}
+To address the temporal disparity between vectorized classical processing (BLAS/MKL/GPU) and the inherently sequential nature of current quantum simulators (e.g., Qiskit Machine Learning connectors), we adopt a \textbf{Compute-Matched Temporal Paradigm}. All classical baselines are executed using a sample-wise sequential processing flow in their forward pass. This eliminates the hidden hardware-acceleration advantage of classical baselines, provided a leveled playing field for evaluating the absolute computational efficiency of hybrid classical-quantum transfer learning architectures (Reviewer R2.1).
 
 \subsection{Realistic Hardware Noise Modeling}
 To address concerns regarding hardware fidelity (Reviewer R2.9), we incorporate a noise profile calibrated to the \textit{IBM Heron r2} processor (e.g., ibm_torino). The noise model includes:

@@ -4,6 +4,7 @@ MLP-A head: Parameter-matched shallow MLP (~12 trainable params).
 Designed to match the parameter count of a 4-qubit, depth-3 VQC (~12 variational params).
 """
 
+import torch
 import torch.nn as nn
 
 
@@ -40,12 +41,12 @@ class MLPAHead(nn.Module):
         """Initialize the MLP-A head."""
         super().__init__()
         self.proj = nn.Linear(feature_dim, hidden_dim, bias=False)
-        self.act = nn.Tanh()
-        self.fc = nn.Linear(hidden_dim, num_classes)
+        self.act = nn.Hardtanh()
+        self.fc = nn.Linear(hidden_dim, num_classes, bias=False)
 
     def forward(self, x):
         """
-        Forward pass.
+        Forward pass (sequential samples).
 
         Args:
             x: Input tensor of shape (batch_size, feature_dim)
@@ -53,7 +54,6 @@ class MLPAHead(nn.Module):
         Returns:
             Output logits of shape (batch_size, num_classes)
         """
-        x = self.proj(x)
-        x = self.act(x)
-        x = self.fc(x)
-        return x
+        # Sequential processing for architectural/compute-time parity
+        # mirroring current quantum simulation patterns.
+        return torch.stack([self.fc(self.act(self.proj(x[i]))) for i in range(x.size(0))])

@@ -55,9 +55,9 @@ heads:
 
   - name: "mlp_a"
     type: "classical"
-    description: "Parameter-matched MLP (~12 params): Linear->tanh->Linear"
-    hidden_dim: 4
-    activation: "tanh"
+    description: "Parameter-matched MLP (Ultra-low dim): Linear->Hardtanh->Linear"
+    hidden_dim: 2
+    activation: "hardtanh"
 
   - name: "mlp_b"
     type: "classical"
@@ -74,7 +74,7 @@ heads:
     depth: 3
     noise: false
     noise_channels: []
-    gradient_method: "spsa"
+    gradient_method: "adjoint"
 
   - name: "pl_noisy"
     type: "pennylane"
@@ -103,7 +103,7 @@ heads:
     depth: 3
     noise: false
     shots: null
-    gradient_method: "spsa"
+    gradient_method: "reverse"
 
   - name: "qk_noisy"
     type: "qiskit"
