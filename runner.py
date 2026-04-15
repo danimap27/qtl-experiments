@@ -1099,17 +1099,23 @@ def main() -> int:
         results_root = os.path.dirname(run_folder)
 
         if existing_ids and not args.overwrite:
-            # Interactive skip/overwrite for local runs
-            bulk_decision = [None]
-            print(f"\n  {len(existing_ids)} run(s) already completed.")
-            to_overwrite: Set[str] = set()
-            for r in runs:
-                if r.run_id in existing_ids:
-                    if prompt_overwrite(r.run_id, bulk_decision):
-                        to_overwrite.add(r.run_id)
-            for run_id in to_overwrite:
-                delete_run_from_csvs(run_id, results_root)
-            existing_ids -= to_overwrite
+            if sys.stdin.isatty():
+                # Modo local interactivo: preguntar run a run
+                bulk_decision = [None]
+                print(f"\n  {len(existing_ids)} run(s) already completed.")
+                to_overwrite: Set[str] = set()
+                for r in runs:
+                    if r.run_id in existing_ids:
+                        if prompt_overwrite(r.run_id, bulk_decision):
+                            to_overwrite.add(r.run_id)
+                for run_id in to_overwrite:
+                    delete_run_from_csvs(run_id, results_root)
+                existing_ids -= to_overwrite
+            else:
+                # Modo batch/SLURM: skip automático sin prompt, resultados intactos
+                logger.info(
+                    f"Batch mode: auto-skipping {len(existing_ids)} already completed run(s)."
+                )
         elif args.overwrite:
             for run_id in existing_ids:
                 delete_run_from_csvs(run_id, results_root)
