@@ -181,8 +181,86 @@ Examples:
         default=1,
         help="Log level: 0=errors, 1=progress, 2=detail (default: 1)",
     )
+    parser.add_argument(
+        "--status",
+        action="store_true",
+        help="Show completed/pending status table and exit",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite completed runs without prompting (for SLURM batch)",
+    )
 
     return parser.parse_args()
+
+
+def scan_all_completed_ids(output_dir: str) -> Set[str]:
+    """Scan all result subfolders and collect completed run_ids."""
+    completed: Set[str] = set()
+    if not os.path.exists(output_dir):
+        return completed
+    for folder in os.listdir(output_dir):
+        runs_csv = os.path.join(output_dir, folder, "runs.csv")
+        if os.path.exists(runs_csv):
+            try:
+                df = pd.read_csv(runs_csv)
+                if "run_id" in df.columns:
+                    completed.update(df["run_id"].astype(str))
+            except Exception:
+                pass
+    return completed
+
+
+def show_status(runs: List["RunConfig"], config: Dict[str, Any]) -> None:
+    """Print a table of completed/pending runs across all result folders."""
+    completed_ids = scan_all_completed_ids(config["output_dir"])
+    done = [r for r in runs if r.run_id in completed_ids]
+    pending = [r for r in runs if r.run_id not in completed_ids]
+    print(f"\n  Total: {len(runs)}  |  Done: {len(done)}  |  Pending: {len(pending)}\n")
+    if done:
+        print(f"  {'COMPLETED':^50}")
+        for r in done:
+            print(f"    [x] {r.run_id}")
+    if pending:
+        print(f"\n  {'PENDING':^50}")
+        for r in pending:
+            print(f"    [ ] {r.run_id}")
+    print()
+
+
+def prompt_overwrite(run_id: str, bulk_decision: list) -> bool:
+    """
+    Ask whether to skip or overwrite a completed run.
+
+    bulk_decision is a 1-element list used as mutable out-param:
+      None           → ask each time
+      "skip_all"     → skip without prompting
+      "overwrite_all"→ overwrite without prompting
+
+    Returns True to overwrite, False to skip.
+    """
+    if bulk_decision[0] == "skip_all":
+        logger.info(f"Skipping (skip-all): {run_id}")
+        return False
+    if bulk_decision[0] == "overwrite_all":
+        logger.info(f"Overwriting (overwrite-all): {run_id}")
+        return True
+    while True:
+        print(f"\n  Run already completed: {run_id}")
+        print("  [S] Skip   [O] Overwrite   [SA] Skip All   [OA] Overwrite All")
+        choice = input("  Choice: ").strip().lower()
+        if choice == "s":
+            return False
+        if choice == "o":
+            return True
+        if choice == "sa":
+            bulk_decision[0] = "skip_all"
+            return False
+        if choice == "oa":
+            bulk_decision[0] = "overwrite_all"
+            return True
+        print("  Invalid — enter S, O, SA, or OA.")
 
 
 def load_config(config_path: str) -> Dict[str, Any]:
@@ -962,15 +1040,33 @@ def main() -> int:
                 print_dry_run_summary(runs, config)
             return 0
 
+        # Status display and exit
+        if args.status:
+            show_status(runs, config)
+            return 0
+
         # Get output paths and check for resumability
-        # For dry-run we still create the folder so the ID is reserved
-        if not args.dry_run:
-            run_folder = create_run_folder(config["output_dir"], args.machine_id, args, config)
-            paths = get_output_paths(run_folder)
-            config["output_dir"] = run_folder
-        else:
-            paths = {"runs": os.path.join(config["output_dir"], "runs.csv")}
-        existing_ids = load_existing_ids(paths["runs"])
+        run_folder = create_run_folder(config["output_dir"], args.machine_id, args, config)
+        paths = get_output_paths(run_folder)
+        config["output_dir"] = run_folder
+
+        # Collect completed run_ids across ALL result folders
+        all_completed = scan_all_completed_ids(os.path.dirname(run_folder))
+        existing_ids = all_completed & {r.run_id for r in runs}
+
+        if existing_ids and not args.overwrite:
+            # Interactive skip/overwrite for local runs
+            bulk_decision = [None]
+            print(f"\n  {len(existing_ids)} run(s) already completed.")
+            to_overwrite: Set[str] = set()
+            for r in runs:
+                if r.run_id in existing_ids:
+                    if prompt_overwrite(r.run_id, bulk_decision):
+                        to_overwrite.add(r.run_id)
+            existing_ids -= to_overwrite
+        elif args.overwrite:
+            existing_ids = set()
+
         logger.info(f"Detected {len(existing_ids)} previously completed runs; skipping to ensure efficiency.")
 
         # Execute runs
