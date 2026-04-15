@@ -191,6 +191,49 @@ def refresh_commands():
     input("\nPress Enter to return to menu...")
 
 
+def _delete_run_results(run_ids: List[str]) -> None:
+    """
+    Remove rows for each run_id from all runs.csv/predictions.csv/training_log.csv
+    in RESULTS_DIR subfolders. Deletes the folder if its runs.csv ends up empty.
+    """
+    if not HAS_PANDAS:
+        print("  [WARN] pandas not available — cannot delete specific rows.")
+        return
+    pattern = os.path.join(RESULTS_DIR, "[0-9]*", "runs.csv")
+    ids_to_delete = set(str(r) for r in run_ids)
+    for runs_csv in glob.glob(pattern):
+        folder_path = str(Path(runs_csv).parent)
+        try:
+            df = pd.read_csv(runs_csv)
+            if "run_id" not in df.columns:
+                continue
+            hits = df["run_id"].astype(str).isin(ids_to_delete)
+            if not hits.any():
+                continue
+            for csv_name in ("runs.csv", "predictions.csv", "training_log.csv"):
+                csv_path = os.path.join(folder_path, csv_name)
+                if not os.path.exists(csv_path):
+                    continue
+                try:
+                    sub = pd.read_csv(csv_path)
+                    if "run_id" in sub.columns:
+                        sub = sub[~sub["run_id"].astype(str).isin(ids_to_delete)]
+                        sub.to_csv(csv_path, index=False)
+                except Exception as e:
+                    print(f"  [WARN] Could not clean {csv_path}: {e}")
+            # Remove folder if runs.csv is now empty
+            try:
+                remaining = pd.read_csv(runs_csv)
+                if remaining.empty:
+                    import shutil
+                    shutil.rmtree(folder_path)
+                    print(f"  Removed empty folder: {folder_path}")
+            except Exception:
+                pass
+        except Exception as e:
+            print(f"  [WARN] Could not process {runs_csv}: {e}")
+
+
 def check_completed(phase_key: Optional[str] = None) -> Optional[str]:
     """
     Show completed/pending runs for a phase (or all).
@@ -257,7 +300,10 @@ def check_completed(phase_key: Optional[str] = None) -> Optional[str]:
             input("\nWill skip completed runs. Enter to return...")
             return "skip_all"
         if choice == "O":
-            input("\nWill overwrite completed runs. Enter to return...")
+            print(f"\n  Deleting results for {len(done)} run(s)...")
+            _delete_run_results(done)
+            print(f"  Done. {len(done)} result(s) removed.")
+            input("\nPress Enter to continue...")
             return "overwrite_all"
         if choice == "C":
             return None

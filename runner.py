@@ -212,6 +212,48 @@ def scan_all_completed_ids(output_dir: str) -> Set[str]:
     return completed
 
 
+def delete_run_from_csvs(run_id: str, output_dir: str) -> None:
+    """
+    Remove all rows for run_id from runs.csv, predictions.csv, and training_log.csv
+    across every result subfolder. If a folder's runs.csv ends up empty, deletes it.
+    """
+    if not os.path.exists(output_dir):
+        return
+    for folder in os.listdir(output_dir):
+        folder_path = os.path.join(output_dir, folder)
+        runs_csv = os.path.join(folder_path, "runs.csv")
+        if not os.path.exists(runs_csv):
+            continue
+        try:
+            df = pd.read_csv(runs_csv)
+            if "run_id" not in df.columns or run_id not in df["run_id"].astype(str).values:
+                continue
+            # Remove matching rows from all CSVs in this folder
+            for csv_name in ("runs.csv", "predictions.csv", "training_log.csv"):
+                csv_path = os.path.join(folder_path, csv_name)
+                if not os.path.exists(csv_path):
+                    continue
+                try:
+                    sub = pd.read_csv(csv_path)
+                    if "run_id" in sub.columns:
+                        sub = sub[sub["run_id"].astype(str) != run_id]
+                        sub.to_csv(csv_path, index=False)
+                except Exception as e:
+                    logger.warning(f"Could not clean {csv_path}: {e}")
+            # If runs.csv is now empty (no data rows), remove the folder
+            try:
+                remaining = pd.read_csv(runs_csv)
+                if remaining.empty:
+                    import shutil
+                    shutil.rmtree(folder_path)
+                    logger.info(f"Removed empty result folder: {folder_path}")
+            except Exception:
+                pass
+            logger.info(f"Deleted results for {run_id} from {folder_path}")
+        except Exception as e:
+            logger.warning(f"Could not process {runs_csv}: {e}")
+
+
 def show_status(runs: List["RunConfig"], config: Dict[str, Any]) -> None:
     """Print a table of completed/pending runs across all result folders."""
     completed_ids = scan_all_completed_ids(config["output_dir"])
@@ -1054,6 +1096,8 @@ def main() -> int:
         all_completed = scan_all_completed_ids(os.path.dirname(run_folder))
         existing_ids = all_completed & {r.run_id for r in runs}
 
+        results_root = os.path.dirname(run_folder)
+
         if existing_ids and not args.overwrite:
             # Interactive skip/overwrite for local runs
             bulk_decision = [None]
@@ -1063,8 +1107,12 @@ def main() -> int:
                 if r.run_id in existing_ids:
                     if prompt_overwrite(r.run_id, bulk_decision):
                         to_overwrite.add(r.run_id)
+            for run_id in to_overwrite:
+                delete_run_from_csvs(run_id, results_root)
             existing_ids -= to_overwrite
         elif args.overwrite:
+            for run_id in existing_ids:
+                delete_run_from_csvs(run_id, results_root)
             existing_ids = set()
 
         logger.info(f"Detected {len(existing_ids)} previously completed runs; skipping to ensure efficiency.")
