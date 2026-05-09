@@ -191,6 +191,18 @@ Examples:
         action="store_true",
         help="Overwrite completed runs without prompting (for SLURM batch)",
     )
+    parser.add_argument(
+        "--n-qubits",
+        type=int,
+        default=None,
+        help="Filter ablation runs by number of qubits",
+    )
+    parser.add_argument(
+        "--depth",
+        type=int,
+        default=None,
+        help="Filter ablation runs by circuit depth",
+    )
 
     return parser.parse_args()
 
@@ -658,6 +670,12 @@ def apply_filters(runs: List[RunConfig], args: argparse.Namespace) -> List[RunCo
         allowed_seeds = set(int(s) for s in args.seed.split(","))
         runs = [r for r in runs if r.seed in allowed_seeds]
 
+    if args.n_qubits is not None:
+        runs = [r for r in runs if r.overrides.get("n_qubits") == args.n_qubits]
+
+    if args.depth is not None:
+        runs = [r for r in runs if r.overrides.get("depth") == args.depth]
+
     return runs
 
 
@@ -874,6 +892,12 @@ def export_commands(
 
         if args.study:
             cmd.append(f"--study {args.study}")
+
+        if run.overrides.get("n_qubits") is not None:
+            cmd.append(f"--n-qubits {run.overrides['n_qubits']}")
+
+        if run.overrides.get("depth") is not None:
+            cmd.append(f"--depth {run.overrides['depth']}")
 
         if args.verbose != 1:
             cmd.append(f"--verbose {args.verbose}")

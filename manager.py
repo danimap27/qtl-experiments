@@ -234,10 +234,12 @@ def _delete_run_results(run_ids: List[str]) -> None:
             print(f"  [WARN] Could not process {runs_csv}: {e}")
 
 
-def check_completed(phase_key: Optional[str] = None) -> Optional[str]:
+def check_completed(phase_key: Optional[str] = None, view_only: bool = False) -> Optional[str]:
     """
-    Show completed/pending runs for a phase (or all).
-    Returns "overwrite_all", "skip_all", or None if cancelled.
+    Comprueba runs completados/pendientes.
+    - view_only=True : solo muestra estado, sin preguntar (opción [C] del menú)
+    - view_only=False: si hay completados, pregunta qué hacer (2 opciones)
+      Devuelve "skip_all", "overwrite_all", o None (cancelar)
     """
     completed_ids = _collect_completed_ids()
 
@@ -265,49 +267,52 @@ def check_completed(phase_key: Optional[str] = None) -> Optional[str]:
                 continue
 
     if not all_run_ids:
-        print("\n  No parseable command files found. Run [R] first.")
-        input("\nEnter to return...")
+        print("\n  No hay archivos de comandos. Ejecuta [R] primero.")
+        input("\nEnter para volver...")
         return None
 
     done = [r for r in all_run_ids if r in completed_ids]
     pending = [r for r in all_run_ids if r not in completed_ids]
 
-    print(f"\n  Total: {len(all_run_ids)}  |  Done: {len(done)}  |  Pending: {len(pending)}")
+    print(f"\n  Total: {len(all_run_ids)}  |  Completados: {len(done)}  |  Pendientes: {len(pending)}")
 
-    if done:
-        print(f"\n  Completed ({len(done)}):")
-        for r in done[:20]:
-            print(f"    [x] {r}")
-        if len(done) > 20:
-            print(f"    ... and {len(done) - 20} more")
-
-    if pending:
-        print(f"\n  Pending ({len(pending)}):")
-        for r in pending[:20]:
-            print(f"    [ ] {r}")
-        if len(pending) > 20:
-            print(f"    ... and {len(pending) - 20} more")
-
-    if not done:
-        input("\nAll runs pending. Enter to return...")
+    if view_only:
+        if done:
+            print(f"\n  Completados ({len(done)}):")
+            for r in done[:20]:
+                print(f"    [x] {r}")
+            if len(done) > 20:
+                print(f"    ... y {len(done) - 20} más")
+        if pending:
+            print(f"\n  Pendientes ({len(pending)}):")
+            for r in pending[:20]:
+                print(f"    [ ] {r}")
+            if len(pending) > 20:
+                print(f"    ... y {len(pending) - 20} más")
+        input("\nEnter para volver...")
         return None
 
-    print("\n  Completed runs found. What to do when submitting?")
-    print("  [S] Skip completed   [O] Overwrite all   [C] Cancel")
+    # Sin completados: ejecutar directo
+    if not done:
+        return "skip_all"
+
+    # Con completados: 2 opciones claras
+    print(f"\n  Hay {len(done)} run(s) ya completados.")
+    print(f"  [1] Mantener resultados y ejecutar solo los {len(pending)} pendientes")
+    print(f"  [2] Borrar todo y reejecutar los {len(all_run_ids)} runs desde cero")
+    print(f"  [C] Cancelar")
     while True:
-        choice = input("  Choice: ").strip().upper()
-        if choice == "S":
-            input("\nWill skip completed runs. Enter to return...")
+        choice = input("  Opción: ").strip().upper()
+        if choice == "1":
             return "skip_all"
-        if choice == "O":
-            print(f"\n  Deleting results for {len(done)} run(s)...")
+        if choice == "2":
+            print(f"\n  Borrando resultados de {len(done)} run(s)...")
             _delete_run_results(done)
-            print(f"  Done. {len(done)} result(s) removed.")
-            input("\nPress Enter to continue...")
+            print(f"  Listo. {len(done)} resultado(s) eliminados.")
             return "overwrite_all"
         if choice == "C":
             return None
-        print("  Enter S, O, or C.")
+        print("  Introduce 1, 2 o C.")
 
 
 def submit_phase(key: str, dependency_id: Optional[str] = None, overwrite: bool = False):
@@ -462,19 +467,18 @@ def main():
         if choice == 'R':
             refresh_commands()
         elif choice in ('1', '2', '3', '4'):
-            overwrite_mode = check_completed(phase_key=choice)
-            overwrite = overwrite_mode == "overwrite_all"
-            submit_phase(choice, overwrite=overwrite)
-            input("\nPress Enter...")
+            mode = check_completed(phase_key=choice)
+            if mode is not None:
+                submit_phase(choice, overwrite=(mode == "overwrite_all"))
+                input("\nPress Enter...")
         elif choice == 'F':
-            overwrite_mode = check_completed()
-            overwrite = overwrite_mode == "overwrite_all"
-            launch_full_pipeline(overwrite=overwrite)
+            mode = check_completed()
+            if mode is not None:
+                launch_full_pipeline(overwrite=(mode == "overwrite_all"))
         elif choice == 'M':
             show_monitoring()
         elif choice == 'C':
-            check_completed()
-            input("\nPress Enter to return to menu...")
+            check_completed(view_only=True)
         elif choice == 'T':
             generate_tables_trigger()
         elif choice == 'X':

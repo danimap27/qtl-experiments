@@ -5,7 +5,7 @@
 #SBATCH --time=04:00:00
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=16G
-#SBATCH --array=1-32%20
+#SBATCH --array=1-64%20
 
 # ============================================================
 # QTL Paper v2 — Ablación qubits/profundidad (32 runs)
